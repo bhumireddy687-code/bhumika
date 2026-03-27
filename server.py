@@ -6,12 +6,11 @@ from database import fetch_messages, init_db, insert_message
 
 app = Flask(__name__, static_folder=".", static_url_path="")
 
-
-@app.before_request
-def ensure_database_ready():
-    if not getattr(app, "_db_initialized", False):
-        init_db()
-        app._db_initialized = True
+def _ensure_db_initialized():
+    if getattr(app, "_db_initialized", False):
+        return
+    init_db()
+    app._db_initialized = True
 
 
 @app.route("/")
@@ -21,7 +20,14 @@ def root():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok"})
+    db_ok = True
+    db_error = None
+    try:
+        _ensure_db_initialized()
+    except Exception as exc:
+        db_ok = False
+        db_error = str(exc)
+    return jsonify({"status": "ok", "db_ok": db_ok, "db_error": db_error})
 
 
 @app.route("/api/contact", methods=["POST"])
@@ -38,12 +44,27 @@ def contact():
     if "@" not in email:
         return jsonify({"error": "please provide a valid email"}), 400
 
+    try:
+        _ensure_db_initialized()
+    except Exception:
+        return jsonify({"error": "Database is not configured. Set DATABASE_URL and try again."}), 500
+
     row = insert_message(name=name, email=email, message=message)
     return jsonify({"message": "saved", "id": row["id"], "created_at": str(row["created_at"])})
 
 
 @app.route("/admin", methods=["GET"])
 def admin():
+    try:
+        _ensure_db_initialized()
+    except Exception as exc:
+        return (
+            "<h2>Database not configured</h2>"
+            "<p>Set <b>DATABASE_URL</b> (PostgreSQL) and restart the server.</p>"
+            f"<pre>{exc}</pre>",
+            500,
+        )
+
     messages = fetch_messages()
 
     rows = []

@@ -3,13 +3,11 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-
-
 def get_connection():
-    if not DATABASE_URL:
+    database_url = (os.getenv("DATABASE_URL") or "").strip()
+    if not database_url:
         raise RuntimeError("DATABASE_URL environment variable is not set.")
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    return psycopg2.connect(database_url, cursor_factory=RealDictCursor)
 
 
 def init_db():
