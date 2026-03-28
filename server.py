@@ -6,6 +6,29 @@ from database import fetch_messages, init_db, insert_message
 
 app = Flask(__name__, static_folder=".", static_url_path="")
 
+
+def _admin_authorized():
+    secret = (os.getenv("ADMIN_SECRET") or "").strip()
+    if not secret:
+        return True
+    got = (
+        request.headers.get("X-Admin-Secret")
+        or request.args.get("secret")
+        or ""
+    ).strip()
+    return got == secret
+
+
+def _serialize_message(row):
+    m = dict(row)
+    ca = m.get("created_at")
+    if ca is not None:
+        m["created_at"] = (
+            ca.isoformat() if hasattr(ca, "isoformat") else str(ca)
+        )
+    return m
+
+
 def _ensure_db_initialized():
     if getattr(app, "_db_initialized", False):
         return
@@ -53,44 +76,21 @@ def contact():
     return jsonify({"message": "saved", "id": row["id"], "created_at": str(row["created_at"])})
 
 
-@app.route("/admin", methods=["GET"])
-def admin():
+@app.route("/admin")
+def admin_page():
+    return send_from_directory(".", "admin.html")
+
+
+@app.route("/api/admin/messages", methods=["GET"])
+def admin_messages():
+    if not _admin_authorized():
+        return jsonify({"error": "Unauthorized"}), 401
     try:
         _ensure_db_initialized()
     except Exception as exc:
-        return (
-            "<h2>Database not configured</h2>"
-            "<p>Set <b>DATABASE_URL</b> (PostgreSQL) and restart the server.</p>"
-            f"<pre>{exc}</pre>",
-            500,
-        )
-
-    messages = fetch_messages()
-
-    rows = []
-    for msg in messages:
-        rows.append(
-            "<tr>"
-            f"<td>{msg['id']}</td>"
-            f"<td>{msg['name']}</td>"
-            f"<td>{msg['email']}</td>"
-            f"<td>{msg['message']}</td>"
-            f"<td>{msg['created_at']}</td>"
-            "</tr>"
-        )
-
-    html = (
-        "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Admin</title>"
-        "<style>body{font-family:Arial;margin:30px;background:#111;color:#fff;}"
-        "table{border-collapse:collapse;width:100%;background:#1a1a1a;}"
-        "th,td{border:1px solid #333;padding:10px;text-align:left;}"
-        "th{background:#222;}h1{color:#00cfff;}</style></head><body>"
-        "<h1>Contact Messages</h1>"
-        "<table><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Message</th><th>Created At</th></tr></thead>"
-        f"<tbody>{''.join(rows) if rows else '<tr><td colspan=5>No messages yet.</td></tr>'}</tbody>"
-        "</table></body></html>"
-    )
-    return html
+        return jsonify({"error": str(exc)}), 500
+    messages = [_serialize_message(m) for m in fetch_messages()]
+    return jsonify({"messages": messages})
 
 
 if __name__ == "__main__":

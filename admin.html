@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — Contact messages</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600&family=Poppins:wght@300;400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body.admin-page {
+      min-height: 100vh;
+      padding-top: 70px;
+    }
+    .admin-main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 40px 10% 80px;
+    }
+    .admin-main h1 {
+      font-family: Orbitron, sans-serif;
+      color: var(--cyan);
+      font-size: 2rem;
+      margin-bottom: 8px;
+      text-align: left;
+    }
+    .admin-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .admin-toolbar .hint {
+      font-size: 0.85rem;
+      opacity: 0.75;
+    }
+    .messages-table-wrap {
+      overflow-x: auto;
+      border-radius: 15px;
+      border: 1px solid var(--purple);
+      background: var(--glass);
+      box-shadow: 0 0 20px rgba(255, 122, 217, 0.15);
+    }
+    .messages-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+    .messages-table th,
+    .messages-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      vertical-align: top;
+    }
+    .light .messages-table th,
+    .light .messages-table td {
+      border-bottom-color: rgba(0, 0, 0, 0.08);
+    }
+    .messages-table th {
+      font-family: Orbitron, sans-serif;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--pink);
+      background: rgba(0, 0, 0, 0.25);
+    }
+    .light .messages-table th {
+      background: rgba(0, 0, 0, 0.06);
+    }
+    .messages-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .messages-table .col-msg {
+      max-width: 360px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .messages-table .col-time {
+      white-space: nowrap;
+      font-size: 0.85rem;
+      opacity: 0.85;
+    }
+    .admin-error {
+      color: #ff6b6b;
+      margin-top: 12px;
+    }
+    .admin-gate {
+      max-width: 400px;
+    }
+    .admin-gate label {
+      display: block;
+      text-align: left;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body class="admin-page">
+  <nav>
+    <div><strong>Admin</strong></div>
+    <div>
+      <a href="/">← Portfolio</a>
+      <span class="toggle" title="Toggle light/dark mode">🌙</span>
+    </div>
+  </nav>
+
+  <main class="admin-main">
+    <h1>Contact inbox</h1>
+    <p class="hint" style="text-align:left;margin-bottom:20px;opacity:0.8;">
+      Messages submitted through the site contact form appear here.
+    </p>
+
+    <div id="gate" class="card admin-gate" hidden>
+      <p>This server requires an admin secret. Enter the value from <code>ADMIN_SECRET</code> on the server.</p>
+      <label for="adminSecret">Admin secret</label>
+      <input id="adminSecret" type="password" autocomplete="current-password" placeholder="Secret" />
+      <button class="btn" type="button" id="unlockBtn">Unlock</button>
+      <p id="gateError" class="admin-error"></p>
+    </div>
+
+    <div id="inbox" hidden>
+      <div class="admin-toolbar">
+        <button class="btn" type="button" id="refreshBtn">Refresh</button>
+        <span class="hint" id="countHint"></span>
+      </div>
+      <div class="messages-table-wrap">
+        <table class="messages-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Message</th>
+              <th>Received</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <p id="loadError" class="admin-error"></p>
+    </div>
+
+    <p id="loading">Loading messages…</p>
+  </main>
+
+  <script>
+    const ADMIN_SECRET_KEY = "contact_admin_secret";
+
+    const gate = document.getElementById("gate");
+    const inbox = document.getElementById("inbox");
+    const loading = document.getElementById("loading");
+    const tbody = document.getElementById("tbody");
+    const loadError = document.getElementById("loadError");
+    const gateError = document.getElementById("gateError");
+    const countHint = document.getElementById("countHint");
+
+    function headers() {
+      const h = { Accept: "application/json" };
+      const s = sessionStorage.getItem(ADMIN_SECRET_KEY);
+      if (s) h["X-Admin-Secret"] = s;
+      return h;
+    }
+
+    function formatTime(iso) {
+      if (!iso) return "—";
+      try {
+        const d = new Date(iso);
+        return d.toLocaleString();
+      } catch {
+        return iso;
+      }
+    }
+
+    function renderRows(messages) {
+      tbody.replaceChildren();
+      if (!messages.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.textContent = "No messages yet.";
+        td.style.textAlign = "center";
+        td.style.padding = "28px";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        countHint.textContent = "0 messages";
+        return;
+      }
+      countHint.textContent = messages.length + " message" + (messages.length === 1 ? "" : "s");
+      for (const m of messages) {
+        const tr = document.createElement("tr");
+        const cells = [
+          String(m.id),
+          m.name || "",
+          m.email || "",
+          m.message || "",
+          formatTime(m.created_at),
+        ];
+        cells.forEach((text, i) => {
+          const td = document.createElement("td");
+          td.textContent = text;
+          if (i === 3) td.className = "col-msg";
+          if (i === 4) td.className = "col-time";
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function loadMessages() {
+      loadError.textContent = "";
+      loading.hidden = false;
+      gate.hidden = true;
+      inbox.hidden = true;
+
+      const res = await fetch("/api/admin/messages", { headers: headers() });
+      loading.hidden = true;
+
+      if (res.status === 401) {
+        gate.hidden = false;
+        gateError.textContent = "";
+        return;
+      }
+
+      if (!res.ok) {
+        let msg = "Could not load messages.";
+        try {
+          const j = await res.json();
+          if (j.error) msg = j.error;
+        } catch (_) {}
+        loadError.textContent = msg;
+        inbox.hidden = false;
+        return;
+      }
+
+      const data = await res.json();
+      inbox.hidden = false;
+      renderRows(data.messages || []);
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", loadMessages);
+
+    document.getElementById("unlockBtn").addEventListener("click", () => {
+      const s = document.getElementById("adminSecret").value.trim();
+      if (!s) {
+        gateError.textContent = "Enter the admin secret.";
+        return;
+      }
+      sessionStorage.setItem(ADMIN_SECRET_KEY, s);
+      gateError.textContent = "";
+      loadMessages();
+    });
+
+    document.querySelector(".toggle")?.addEventListener("click", () => {
+      document.body.classList.toggle("light");
+    });
+
+    loadMessages();
+  </script>
+</body>
+</html>
